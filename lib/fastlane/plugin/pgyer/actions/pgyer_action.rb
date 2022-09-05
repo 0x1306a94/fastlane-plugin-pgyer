@@ -3,6 +3,12 @@ require "faraday_middleware"
 
 module Fastlane
   module Actions
+    module SharedValues
+      PGYER_OUTPUT_BUILD_FULL_INFO = :PGYER_OUTPUT_BUILD_FULL_INFO
+      PGYER_OUTPUT_BUILD_NAME = :PGYER_OUTPUT_BUILD_NAME
+      PGYER_OUTPUT_DOWNLOAD_URL = :PGYER_OUTPUT_DOWNLOAD_URL
+      PGYER_OUTPUT_QRCODE_URL = :PGYER_OUTPUT_QRCODE_URL
+    end
     class PgyerAction < Action
       def self.run(params)
         UI.message("The pgyer plugin is working.")
@@ -106,6 +112,7 @@ module Fastlane
 
         response = pgyer_client.post endpoint, request_params
 
+        UI.message "Finish upload #{build_file} to pgyer: #{response.status}"
         if response.status != 204
           UI.user_error!("PGYER Plugin Upload Error: #{response.body}")
         end
@@ -121,8 +128,13 @@ module Fastlane
         ["rexshi"]
       end
 
-      def self.return_value
-        # If your method provides a return value, you can describe here what it does
+      def self.output
+        [
+          ['PGYER_OUTPUT_BUILD_FULL_INFO', 'Complete current build information'],
+          ['PGYER_OUTPUT_BUILD_NAME', 'The current build name'],
+          ['PGYER_OUTPUT_DOWNLOAD_URL', 'The current build download url'],
+          ['PGYER_OUTPUT_QRCODE_URL', 'The current build qrcode url'],
+        ]
       end
 
       def self.details
@@ -216,10 +228,16 @@ module Fastlane
 
       private
 
-      def self.checkPublishStatus(client, api_host, api_key, buildKey)
-        response = client.post "#{api_host}/buildInfo", { :_api_key => api_key, :buildKey => buildKey }
+      def self.checkPublishStatus(client, api_host, api_key, build_key)
+        UI.message "Start checkPublishStatus build_key: #{build_key}"
+        response = client.post "#{api_host}/buildInfo", { :_api_key => api_key, :buildKey => build_key }
+        
         info = response.body
         code = info["code"]
+
+        UI.message "Finish checkPublishStatus: #{response.status} code: #{code}"
+        UI.message "response body: #{info}"
+        
         if code == 0
           UI.success "Upload success. BuildInfo is #{info["data"]}."
           shortUrl = info["data"]["buildShortcutUrl"]
@@ -227,11 +245,22 @@ module Fastlane
             shortUrl = info["data"]["buildKey"]
           end
           UI.success "Upload success. Visit this URL to see: https://www.pgyer.com/#{shortUrl}"
+
+          name = info['data']['buildName'] + '-' + info['data']['buildVersion']
+          download_url = "https://www.pgyer.com/#{shortUrl}"
+          qr_code_url = info['data']['buildQRCodeURL']
+
+          Actions.lane_context[SharedValues::PGYER_OUTPUT_BUILD_FULL_INFO] = info
+          Actions.lane_context[SharedValues::PGYER_OUTPUT_BUILD_NAME] = name
+          Actions.lane_context[SharedValues::PGYER_OUTPUT_DOWNLOAD_URL] = download_url
+          Actions.lane_context[SharedValues::PGYER_OUTPUT_QRCODE_URL] = qr_code_url
+
         elsif code == 1246 || code == 1247
+          UI.message "Sleep ..."
           sleep 3
-          self.checkPublishStatus(client, api_host, api_key, buildKey)
+          self.checkPublishStatus(client, api_host, api_key, build_key)
         else
-          UI.user_error!("PGYER Plugin Published Error: #{info} buildKey: #{buildKey}")
+          UI.user_error!("PGYER Plugin Published Error: #{info} build_key: #{build_key}")
         end
       end
     end
